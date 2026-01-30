@@ -16,6 +16,19 @@ const (
 	RemoveCgroups
 )
 
+func (op CgroupPolicyOperation) String() string {
+	switch op {
+	case AddPolicyToCgroups:
+		return "bind"
+	case RemoveCgroups:
+		return "unbind"
+	case RemovePolicy:
+		return "remove_policy"
+	default:
+		panic("unknown cgroup policy operation")
+	}
+}
+
 func (m *Manager) GetCgroupPolicyUpdateFunc() func(polID uint64, cgroupIDs []uint64, op CgroupPolicyOperation) error {
 	return func(polID uint64, cgroupIDs []uint64, op CgroupPolicyOperation) error {
 		return m.updateCgroupPolicy(polID, cgroupIDs, op)

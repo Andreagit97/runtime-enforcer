@@ -17,6 +17,19 @@ const (
 	ReplaceValuesInPolicy
 )
 
+func (op PolicyValuesOperation) String() string {
+	switch op {
+	case AddValuesToPolicy:
+		return "add"
+	case RemoveValuesFromPolicy:
+		return "remove"
+	case ReplaceValuesInPolicy:
+		return "replace"
+	default:
+		panic(fmt.Sprintf("unknown operation %d", op))
+	}
+}
+
 const (
 	StringMapsNumSubMapsSmall = 8
 	StringMapsNumSubMaps      = 11
