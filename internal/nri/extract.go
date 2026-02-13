@@ -34,7 +34,7 @@ func cgroupFromContainer(container *api.Container) (resolver.CgroupID, error) {
 		)
 	}
 
-	cgRoot, _ := cgroups.GetHostCgroupRoot()
+	cgRoot := cgroups.GetHostCgroupRoot()
 	path := filepath.Join(cgRoot, parsedPath)
 
 	// Get the cgroup ID
