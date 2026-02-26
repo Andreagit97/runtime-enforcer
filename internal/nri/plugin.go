@@ -41,7 +41,7 @@ func (p *plugin) Synchronize(
 	p.logger.InfoContext(ctx, "Synchronizing pod sandboxes", "podCount", len(pods))
 
 	// we store the container for now and we associate them later with the pod sandbox
-	tmpSandboxes := make(map[string]map[resolver.ContainerID]*resolver.ContainerData)
+	tmpSandboxes := make(map[string]map[resolver.ContainerID]resolver.ContainerMeta)
 	for _, container := range containers {
 		cgroupID, err := cgroupFromContainer(container)
 		if err != nil {
@@ -60,11 +60,12 @@ func (p *plugin) Synchronize(
 
 		// Populate the sandbox map
 		if _, exists := tmpSandboxes[container.GetPodSandboxId()]; !exists {
-			tmpSandboxes[container.GetPodSandboxId()] = make(map[resolver.ContainerID]*resolver.ContainerData)
+			tmpSandboxes[container.GetPodSandboxId()] = make(map[resolver.ContainerID]resolver.ContainerMeta)
 		}
-		tmpSandboxes[container.GetPodSandboxId()][container.GetId()] = &resolver.ContainerData{
-			CgID: cgroupID,
-			Name: container.GetName(),
+		tmpSandboxes[container.GetPodSandboxId()][container.GetId()] = resolver.ContainerMeta{
+			CgroupID: cgroupID,
+			Name:     container.GetName(),
+			ID:       container.GetId(),
 		}
 	}
 
@@ -87,14 +88,16 @@ func (p *plugin) Synchronize(
 		}
 
 		workloadName, workloadKind := p.getWorkloadInfoAndLog(ctx, pod)
-		podData := &resolver.PodData{
-			UID:          pod.GetId(),
-			Name:         pod.GetName(),
-			Namespace:    pod.GetNamespace(),
-			Labels:       pod.GetLabels(),
-			Containers:   containers,
-			WorkloadName: workloadName,
-			WorkloadType: string(workloadKind),
+		podData := resolver.PodInput{
+			Meta: resolver.PodMeta{
+				ID:           pod.GetId(),
+				Name:         pod.GetName(),
+				Namespace:    pod.GetNamespace(),
+				WorkloadName: workloadName,
+				WorkloadType: string(workloadKind),
+				Labels:       pod.GetLabels(),
+			},
+			Containers: containers,
 		}
 
 		if err := p.resolver.AddPodContainerFromNri(podData); err != nil {
@@ -122,19 +125,22 @@ func (p *plugin) StartContainer(
 	}
 
 	workloadName, workloadKind := p.getWorkloadInfoAndLog(ctx, pod)
-	podData := &resolver.PodData{
-		UID:       pod.GetId(),
-		Name:      pod.GetName(),
-		Namespace: pod.GetNamespace(),
-		Labels:    pod.GetLabels(),
-		Containers: map[resolver.ContainerID]*resolver.ContainerData{
+	podData := resolver.PodInput{
+		Meta: resolver.PodMeta{
+			ID:           pod.GetId(),
+			Name:         pod.GetName(),
+			Namespace:    pod.GetNamespace(),
+			Labels:       pod.GetLabels(),
+			WorkloadName: workloadName,
+			WorkloadType: string(workloadKind),
+		},
+		Containers: map[resolver.ContainerID]resolver.ContainerMeta{
 			container.GetId(): {
-				CgID: cgroupID,
-				Name: container.GetName(),
+				CgroupID: cgroupID,
+				Name:     container.GetName(),
+				ID:       container.GetId(),
 			},
 		},
-		WorkloadName: workloadName,
-		WorkloadType: string(workloadKind),
 	}
 
 	if err = p.resolver.AddPodContainerFromNri(podData); err != nil {

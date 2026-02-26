@@ -20,3 +20,8 @@ type ContainerMeta struct {
 	Name     ContainerName
 	CgroupID CgroupID
 }
+
+type PodInput struct {
+	Meta       PodMeta
+	Containers map[ContainerID]ContainerMeta
+}
