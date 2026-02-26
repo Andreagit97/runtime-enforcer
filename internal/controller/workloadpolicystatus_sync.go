@@ -245,7 +245,6 @@ func (r *WorkloadPolicyStatusSync) getViolationsByPolicy(
 	return violationsByPolicy
 }
 
-// parsePolicyNamespacedName parses a "namespace/name" string into a NamespacedName.
 // safeUint32ToInt32 converts a uint32 to int32, capping at math.MaxInt32.
 func safeUint32ToInt32(v uint32) int32 {
 	if v > math.MaxInt32 {
@@ -254,6 +253,7 @@ func safeUint32ToInt32(v uint32) int32 {
 	return int32(v)
 }
 
+// parsePolicyNamespacedName parses a "namespace/name" string into a NamespacedName.
 func parsePolicyNamespacedName(s string) types.NamespacedName {
 	parts := strings.SplitN(s, "/", 2) //nolint:mnd // namespace/name has 2 parts
 	if len(parts) == 2 {               //nolint:mnd // namespace/name has 2 parts
