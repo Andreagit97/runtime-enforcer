@@ -3,7 +3,7 @@ name: runtime-enforcer
 description: SUSE Security Runtime Enforcer helm chart
 type: application
 version: 0.1.4
-appVersion: v0.2.0
+appVersion: v0.3.0
 
 dependencies: []
 
