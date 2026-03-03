@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	pb "github.com/rancher-sandbox/runtime-enforcer/proto/agent/v1"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -230,6 +232,101 @@ func TestComputeWpStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := computeWpStatus(tt.nodes, expectedMode, policyName)
 			require.NoError(t, err)
+			require.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func makeRecord(i int) v1alpha1.ViolationRecord {
+	return v1alpha1.ViolationRecord{
+		Timestamp:      metav1.NewTime(time.Date(2026, 1, 1, 0, 0, i, 0, time.UTC)),
+		PodName:        fmt.Sprintf("pod-%d", i),
+		ContainerName:  "c",
+		ExecutablePath: "/usr/bin/test",
+		NodeName:       "node-1",
+		Action:         "monitor",
+	}
+}
+
+func TestMergeViolations(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing *v1alpha1.ViolationStatus
+		scraped  []v1alpha1.ViolationRecord
+		expected *v1alpha1.ViolationStatus
+	}{
+		{
+			name:     "both nil/empty returns nil",
+			existing: nil,
+			scraped:  nil,
+			expected: nil,
+		},
+		{
+			name:     "scraped only",
+			existing: nil,
+			scraped:  []v1alpha1.ViolationRecord{makeRecord(1), makeRecord(2)},
+			expected: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(1), makeRecord(2)},
+			},
+		},
+		{
+			name: "existing only",
+			existing: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(1)},
+			},
+			scraped: nil,
+			expected: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(1)},
+			},
+		},
+		{
+			name: "scraped prepended before existing",
+			existing: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(1)},
+			},
+			scraped: []v1alpha1.ViolationRecord{makeRecord(2), makeRecord(3)},
+			expected: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(2), makeRecord(3), makeRecord(1)},
+			},
+		},
+		{
+			name: "trims to MaxViolationRecords",
+			existing: func() *v1alpha1.ViolationStatus {
+				recs := make([]v1alpha1.ViolationRecord, v1alpha1.MaxViolationRecords)
+				for i := range recs {
+					recs[i] = makeRecord(i)
+				}
+				return &v1alpha1.ViolationStatus{Violations: recs}
+			}(),
+			scraped: []v1alpha1.ViolationRecord{makeRecord(999)},
+			expected: func() *v1alpha1.ViolationStatus {
+				recs := make([]v1alpha1.ViolationRecord, v1alpha1.MaxViolationRecords)
+				recs[0] = makeRecord(999)
+				for i := 1; i < v1alpha1.MaxViolationRecords; i++ {
+					recs[i] = makeRecord(i - 1)
+				}
+				return &v1alpha1.ViolationStatus{Violations: recs}
+			}(),
+		},
+		{
+			name:     "existing with empty violations returns scraped",
+			existing: &v1alpha1.ViolationStatus{},
+			scraped:  []v1alpha1.ViolationRecord{makeRecord(1)},
+			expected: &v1alpha1.ViolationStatus{
+				Violations: []v1alpha1.ViolationRecord{makeRecord(1)},
+			},
+		},
+		{
+			name:     "existing with empty violations and no scraped returns nil",
+			existing: &v1alpha1.ViolationStatus{},
+			scraped:  nil,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeViolations(tt.existing, tt.scraped)
 			require.Equal(t, tt.expected, got)
 		})
 	}
