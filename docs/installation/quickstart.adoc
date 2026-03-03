@@ -46,7 +46,7 @@ helm install cert-manager jetstack/cert-manager \
 For more information on configuring cert-manager, please visit the link:https://cert-manager.io/docs/installation/helm[cert-manager documentation].
 ====
 
-The `cert-manager-csi-driver` is used to automatically mount certificates inside runtime enforcer components.
+The `cert-manager-csi-driver` is used to automatically provision and mount TLS certificates directly inside runtime enforcer pods (agent and OTEL collector) without creating intermediate Secret resources.
 To install it, run the following commands:
 
 ```bash
@@ -340,13 +340,12 @@ The standalone collector will forward traces to the configured endpoint while co
 
 === Disable the standalone collector and use an external collector directly
 
-If you already have an OTEL collector deployed in your cluster, you can disable the standalone collector and point the agent directly at it:
+If you already have an OTEL collector deployed in your cluster, you can disable the standalone collector and point the agent at an external one via the `telemetry.custom.endpoint`:
 
 ```bash
 helm upgrade runtime-enforcer runtime-enforcer/runtime-enforcer \
   --namespace runtime-enforcer \
-  --set agent.violations.collector.enabled=false \
-  --set agent.violations.otlpEndpoint=otel-collector.otel-collector.svc.cluster.local:4317 \
+  --set telemetry.violations.collector.enabled=false \
   --set telemetry.tracing=true \
   --set telemetry.custom.endpoint=http://otel-collector.otel-collector.svc.cluster.local:4317 \
   --set telemetry.custom.insecure=true
