@@ -51,7 +51,7 @@ spec:
         - --log-level={{ .Values.agent.logLevel }}
         {{- if .Values.telemetry.violations.collector.enabled }}
         - --violation-otlp-endpoint={{ include "runtime-enforcer.fullname" . }}-otel-collector.{{ .Release.Namespace }}.svc.cluster.local:4317
-        - --violation-otlp-ca-cert=/etc/otel-collector-ca/ca.crt
+        - --violation-otlp-ca-cert={{ include "runtime-enforcer.grpc.certDir" . }}/ca.crt
         {{- end }}
         {{- toYaml .Values.agent.args | nindent 8 }}
         command:
@@ -65,7 +65,7 @@ spec:
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: https://{{ include "runtime-enforcer.fullname" . }}-otel-collector.{{ .Release.Namespace }}.svc.cluster.local:4317
         - name: OTEL_EXPORTER_OTLP_CERTIFICATE
-          value: /etc/otel-collector-ca/ca.crt
+          value: {{ include "runtime-enforcer.grpc.certDir" . }}/ca.crt
         {{- else if or .Values.telemetry.metrics .Values.telemetry.tracing }}
         {{- if eq .Values.telemetry.mode "custom" }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -109,11 +109,7 @@ spec:
         - name: grpc-certs
           mountPath: {{ include "runtime-enforcer.grpc.certDir" . }}
           readOnly: true
-        {{- if .Values.telemetry.violations.collector.enabled }}
-        - name: otel-collector-ca
-          mountPath: /etc/otel-collector-ca
-          readOnly: true
-        {{- end }}
+
       hostPID: {{ .Values.agent.hostPID }}
       securityContext: {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "runtime-enforcer.fullname" . }}-agent
@@ -142,11 +138,3 @@ spec:
             csi.cert-manager.io/issuer-name: {{ include "runtime-enforcer.caIssuerName" . }}
             csi.cert-manager.io/issuer-kind: Issuer
             csi.cert-manager.io/dns-names: ${POD_NAME}.${POD_NAMESPACE}
-      {{- if .Values.telemetry.violations.collector.enabled }}
-      - name: otel-collector-ca
-        secret:
-          secretName: runtime-enforcer-ca
-          items:
-          - key: ca.crt
-            path: ca.crt
-      {{- end }}
