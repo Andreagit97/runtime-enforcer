@@ -13,6 +13,18 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+func loadCACertPool(path string) (*x509.CertPool, error) {
+	caPem, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate %s: %w", path, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPem) {
+		return nil, fmt.Errorf("failed to parse CA certificate from %s", path)
+	}
+	return pool, nil
+}
+
 // Init creates an OTEL log provider that exports violation events to the given
 // gRPC endpoint over TLS. This uses an explicit endpoint to keep the violation
 // event path orthogonal. When caCertPath is non-empty, the connection verifies
@@ -24,17 +36,31 @@ func Init(ctx context.Context, endpoint, caCertPath string) (otellog.Logger, fun
 	}
 
 	if caCertPath != "" {
-		caPem, err := os.ReadFile(caCertPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read CA certificate %s: %w", caCertPath, err)
-		}
-		certPool := x509.NewCertPool()
-		if !certPool.AppendCertsFromPEM(caPem) {
-			return nil, nil, fmt.Errorf("failed to parse CA certificate from %s", caCertPath)
+		// Validate that the CA certificate is readable at startup.
+		if _, err := loadCACertPool(caCertPath); err != nil {
+			return nil, nil, err
 		}
 		tlsConfig := &tls.Config{
-			RootCAs:    certPool,
 			MinVersion: tls.VersionTLS13,
+			// Skip the default verification (static RootCAs) so we can
+			// re-read the CA file on every handshake to handle rotation.
+			InsecureSkipVerify: true, //nolint:gosec // verification is done in VerifyConnection
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				certPool, err := loadCACertPool(caCertPath)
+				if err != nil {
+					return err
+				}
+				opts := x509.VerifyOptions{
+					Roots:         certPool,
+					DNSName:       cs.ServerName,
+					Intermediates: x509.NewCertPool(),
+				}
+				for _, cert := range cs.PeerCertificates[1:] {
+					opts.Intermediates.AddCert(cert)
+				}
+				_, err = cs.PeerCertificates[0].Verify(opts)
+				return err
+			},
 		}
 		opts = append(opts, otlploggrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig)))
 	}
