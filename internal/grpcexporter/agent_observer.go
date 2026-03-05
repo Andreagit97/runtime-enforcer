@@ -54,12 +54,9 @@ func podViewToProto(podView *resolver.PodView) *pb.PodView {
 			Namespace:    podView.Meta.Namespace,
 			WorkloadName: podView.Meta.WorkloadName,
 			WorkloadType: podView.Meta.WorkloadType,
-			Labels:       make(map[string]string, len(podView.Meta.Labels)),
+			Labels:       podView.Meta.Labels,
 		},
 		Containers: make(map[string]*pb.ContainerMeta, len(podView.Containers)),
-	}
-	for k, v := range podView.Meta.Labels {
-		view.Meta.Labels[k] = v
 	}
 	for containerID, containerMeta := range podView.Containers {
 		view.Containers[containerID] = &pb.ContainerMeta{

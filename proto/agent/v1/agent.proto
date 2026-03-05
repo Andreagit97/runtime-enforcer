@@ -25,7 +25,7 @@ message PodMeta {
 	string Namespace = 3;
 	string WorkloadName = 4;
 	string WorkloadType = 5;
-	map<string,string> Labels =6;
+	map<string,string> Labels = 6;
 }
 
 message PodView {
