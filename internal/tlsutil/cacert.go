@@ -18,10 +18,10 @@ const (
 	CAFile = "ca.crt"
 )
 
-// LoadCACertPool reads a PEM-encoded CA certificate from path and returns an
-// x509.CertPool containing it. This is useful for setting up TLS connections
-// that verify against a custom CA, and supports certificate rotation when
-// called on each handshake.
+// LoadCACertPool reads PEM-encoded CA certificates from the given path and
+// return an x509.CertPool containing it.
+// This is useful for setting up TLS connections that verify against a custom CA,
+// and supports certificate rotation when called on each handshake.
 func LoadCACertPool(path string) (*x509.CertPool, error) {
 	caPem, err := os.ReadFile(path)
 	if err != nil {
