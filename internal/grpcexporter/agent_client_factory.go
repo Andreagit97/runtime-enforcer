@@ -2,14 +2,12 @@ package grpcexporter
 
 import (
 	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
 
+	"github.com/rancher-sandbox/runtime-enforcer/internal/tlsutil"
 	pb "github.com/rancher-sandbox/runtime-enforcer/proto/agent/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -40,20 +38,12 @@ func NewAgentClientFactory(conf *AgentFactoryConfig) (*AgentClientFactory, error
 	var tlsKeyPath string
 	var caCertPath string
 	if conf.MTLSEnabled {
-		// if mTLS is enabled, we need to validate the cert path
-		if conf.CertDirPath == "" {
-			return nil, errors.New("certificate directory path is empty")
+		if err := tlsutil.ValidateCertDir(conf.CertDirPath); err != nil {
+			return nil, fmt.Errorf("invalid certificate directory %q: %w", conf.CertDirPath, err)
 		}
-		if _, err := os.Stat(conf.CertDirPath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("certificate directory does not exist: %w", err)
-		}
-		tlsCertPath = filepath.Join(conf.CertDirPath, tlsCertFile)
-		tlsKeyPath = filepath.Join(conf.CertDirPath, tlsKeyFile)
-		caCertPath = filepath.Join(conf.CertDirPath, caCertFile)
-		_, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load key pair: %w", err)
-		}
+		tlsCertPath = filepath.Join(conf.CertDirPath, tlsutil.CertFile)
+		tlsKeyPath = filepath.Join(conf.CertDirPath, tlsutil.KeyFile)
+		caCertPath = filepath.Join(conf.CertDirPath, tlsutil.CAFile)
 	}
 	return &AgentClientFactory{
 		port:        strconv.Itoa(conf.Port),
@@ -70,18 +60,14 @@ func (f *AgentClientFactory) getConnCredentials(podNamespacedName string) (crede
 	}
 
 	// we get them at each new connection so that we manage certificate rotation.
-	caPem, err := os.ReadFile(f.caCertPath)
+	certPool, err := tlsutil.LoadCACertPool(f.caCertPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CA: %w", err)
-	}
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(caPem) {
-		return nil, errors.New("failed to parse CA")
+		return nil, err
 	}
 
-	clientCert, err := tls.LoadX509KeyPair(f.tlsCertPath, f.tlsKeyPath)
+	clientCert, err := tlsutil.LoadKeyPair(f.tlsCertPath, f.tlsKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load client key pair: %w", err)
+		return nil, err
 	}
 
 	tlsConfig := &tls.Config{
