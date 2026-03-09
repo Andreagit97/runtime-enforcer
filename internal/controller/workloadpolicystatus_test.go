@@ -1,4 +1,3 @@
-//nolint:testpackage //we want to test unexported functions
 package controller
 
 import (

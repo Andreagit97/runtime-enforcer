@@ -1,4 +1,3 @@
-//nolint:testpackage // testing unexported policy handlers and wpState
 package resolver
 
 import (
