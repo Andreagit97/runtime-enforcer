@@ -133,9 +133,27 @@ agent: generate-ebpf fmt ## Build agent binary.
 # Version for kubectl plugin (git describe or "dev")
 KUBECTL_PLUGIN_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
+# Platforms for cross-compilation of the kubectl plugin
+PLUGIN_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+
 .PHONY: kubectl-plugin
-kubectl-plugin:
-	go build -ldflags "-X main.version=$(KUBECTL_PLUGIN_VERSION)" -o ./cmd/kubectl-plugin/kubectl-runtime_enforcer ./cmd/kubectl-plugin
+kubectl-plugin: ## Build kubectl plugin for the current platform.
+	go build -ldflags "-X main.version=$(KUBECTL_PLUGIN_VERSION)" -o ./bin/kubectl-runtime_enforcer ./cmd/kubectl-plugin
+
+.PHONY: kubectl-plugin-cross
+kubectl-plugin-cross: ## Build kubectl plugin for all target platforms.
+	@mkdir -p bin/kubectl-plugin
+	@for platform in $(PLUGIN_PLATFORMS); do \
+		os=$$(echo $$platform | cut -d/ -f1); \
+		arch=$$(echo $$platform | cut -d/ -f2); \
+		out=bin/kubectl-plugin/kubectl-runtime_enforcer-$$os-$$arch; \
+		echo "Building $$out ..."; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build \
+			-ldflags "-X main.version=$(KUBECTL_PLUGIN_VERSION)" \
+			-o $$out \
+			./cmd/kubectl-plugin; \
+	done
+	@echo "Cross-build complete. Artifacts in bin/kubectl-plugin/"
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
