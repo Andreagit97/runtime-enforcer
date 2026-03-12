@@ -30,9 +30,9 @@ func printAgentCache(w io.Writer,
 
 	fmt.Fprintln(w, "=== Agent Caches Dump ===")
 	// For each node
-	for _, nodeName := range nodes {
-		cache := agentCachePerNode[nodeName]
-		fmt.Fprintf(w, "\nNode: %s (%d pods)\n", nodeName, len(cache))
+	for _, node := range nodes {
+		cache := agentCachePerNode[node]
+		fmt.Fprintf(w, "\nNode: %s (%d pods)\n", node, len(cache))
 		for _, view := range cache {
 			fmt.Fprintf(
 				w,

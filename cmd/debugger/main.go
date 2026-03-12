@@ -101,13 +101,13 @@ func main() {
 	config, err := loadConfig()
 	if err != nil {
 		slogger.Error("Failed to load configuration", "error", err)
-		return
+		os.Exit(1)
 	}
 
 	cache, err := getPodCache()
 	if err != nil {
 		slogger.Error("Failed to get pod cache", "error", err)
-		return
+		os.Exit(1)
 	}
 
 	// Enable mTLS by default
@@ -117,7 +117,7 @@ func main() {
 	pool, err = grpcexporter.NewAgentClientPool(config.agentPoolConf)
 	if err != nil {
 		slogger.Error("Failed to create agent client pool", "error", err)
-		return
+		os.Exit(1)
 	}
 
 	// we return in case of signals
@@ -149,5 +149,6 @@ func main() {
 
 	if err = g.Wait(); err != nil {
 		slogger.Error("Debugger stopped with error", "error", err)
+		os.Exit(1)
 	}
 }
