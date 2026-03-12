@@ -205,7 +205,7 @@ func (m *Manager) generateInnerBPFMaps(policyID uint64,
 	if err != nil {
 		return fmt.Errorf("failed to insert inner policy (id=%d) map: %w", policyID, err)
 	}
-	m.logger.Info("handler: add new inner map inside policy str", "name", name)
+	m.logger.Debug("handler: add new inner map inside policy str", "name", name)
 	return nil
 }
 

@@ -160,7 +160,7 @@ func (r *Resolver) syncWorkloadPolicy(wp *v1alpha1.WorkloadPolicy) (policyByCont
 		if !hadPolicyID {
 			polID = r.allocPolicyID()
 			newContainers[containerName] = polID
-			r.logger.Info("create policy", "id", polID,
+			r.logger.Info("create container policy", "id", polID,
 				"wp", wpKey,
 				"container", containerName)
 			op = bpf.AddValuesToPolicy
@@ -178,8 +178,7 @@ func (r *Resolver) syncWorkloadPolicy(wp *v1alpha1.WorkloadPolicy) (policyByCont
 func (r *Resolver) ReconcileWP(wp *v1alpha1.WorkloadPolicy) error {
 	r.logger.Info(
 		"reconcile wp-policy",
-		"name", wp.Name,
-		"namespace", wp.Namespace,
+		"wp", wp.NamespacedName(),
 	)
 	r.mu.Lock()
 
@@ -236,8 +235,7 @@ func (r *Resolver) ReconcileWP(wp *v1alpha1.WorkloadPolicy) error {
 func (r *Resolver) HandleWPDelete(wp *v1alpha1.WorkloadPolicy) error {
 	r.logger.Info(
 		"delete-wp-policy",
-		"name", wp.Name,
-		"namespace", wp.Namespace,
+		"wp", wp.NamespacedName(),
 	)
 	r.mu.Lock()
 	defer r.mu.Unlock()
