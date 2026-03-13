@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bytes"
-	"context"
-	"testing"
+"context"
+"testing"
 
-	apiv1alpha1 "github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
-	fakeclient "github.com/rancher-sandbox/runtime-enforcer/pkg/generated/clientset/versioned/fake"
-	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+apiv1alpha1 "github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
+fakeclient "github.com/rancher-sandbox/runtime-enforcer/pkg/generated/clientset/versioned/fake"
+"github.com/stretchr/testify/require"
+metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
 func TestRunMarkReadyUpdatesLabelAndWaitsForPolicy(t *testing.T) {
@@ -34,19 +34,16 @@ func TestRunMarkReadyUpdatesLabelAndWaitsForPolicy(t *testing.T) {
 	clientset := fakeclient.NewClientset(proposal, policy)
 	securityClient := clientset.SecurityV1alpha1()
 
-	var out bytes.Buffer
+	streams, _, out, _ := genericiooptions.NewTestIOStreams()
 	opts := &markReadyOptions{
-		commonOptions: commonOptions{
-			Namespace: ns,
-			DryRun:    false,
-		},
+		Namespace:    ns,
 		ProposalName: name,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
 	defer cancel()
 
-	err := runMarkReady(ctx, securityClient, opts, &out)
+	err := runMarkReady(ctx, securityClient, opts, streams.Out)
 	require.NoError(t, err)
 
 	wpProposal, err := securityClient.WorkloadPolicyProposals(ns).Get(ctx, name, metav1.GetOptions{})

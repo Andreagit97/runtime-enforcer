@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"testing"
 
@@ -10,6 +9,7 @@ import (
 	fakeclient "github.com/rancher-sandbox/runtime-enforcer/pkg/generated/clientset/versioned/fake"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 )
 
 func TestRunSwitchModeMonitorToProtect(t *testing.T) {
@@ -31,12 +31,9 @@ func TestRunSwitchModeMonitorToProtect(t *testing.T) {
 	clientset := fakeclient.NewClientset(policy)
 	securityClient := clientset.SecurityV1alpha1()
 
-	var out bytes.Buffer
+	streams, _, out, _ := genericiooptions.NewTestIOStreams()
 	opts := &switchModeOptions{
-		commonOptions: commonOptions{
-			Namespace: ns,
-			DryRun:    false,
-		},
+		Namespace:  ns,
 		PolicyName: name,
 		Mode:       policymode.ProtectString,
 	}
@@ -44,7 +41,7 @@ func TestRunSwitchModeMonitorToProtect(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
 	defer cancel()
 
-	err := runSwitchMode(ctx, securityClient, opts, &out)
+	err := runSwitchMode(ctx, securityClient, opts, streams.Out)
 	require.NoError(t, err)
 
 	updatedPolicy, err := securityClient.WorkloadPolicies(ns).Get(ctx, name, metav1.GetOptions{})
@@ -53,10 +50,10 @@ func TestRunSwitchModeMonitorToProtect(t *testing.T) {
 
 	output := out.String()
 	require.Contains(
-		t,
-		output,
-		"Successfully switched WorkloadPolicy \"test-policy\" in namespace \"test\" from \"monitor\" mode to \"protect\" mode.",
-	)
+t,
+output,
+"Successfully switched WorkloadPolicy \"test-policy\" in namespace \"test\" from \"monitor\" mode to \"protect\" mode.",
+)
 }
 
 func TestRunSwitchModeProtectToMonitor(t *testing.T) {
@@ -78,12 +75,9 @@ func TestRunSwitchModeProtectToMonitor(t *testing.T) {
 	clientset := fakeclient.NewClientset(policy)
 	securityClient := clientset.SecurityV1alpha1()
 
-	var out bytes.Buffer
+	streams, _, out, _ := genericiooptions.NewTestIOStreams()
 	opts := &switchModeOptions{
-		commonOptions: commonOptions{
-			Namespace: ns,
-			DryRun:    false,
-		},
+		Namespace:  ns,
 		PolicyName: name,
 		Mode:       policymode.MonitorString,
 	}
@@ -91,7 +85,7 @@ func TestRunSwitchModeProtectToMonitor(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultOperationTimeout)
 	defer cancel()
 
-	err := runSwitchMode(ctx, securityClient, opts, &out)
+	err := runSwitchMode(ctx, securityClient, opts, streams.Out)
 	require.NoError(t, err)
 
 	updatedPolicy, err := securityClient.WorkloadPolicies(ns).Get(ctx, name, metav1.GetOptions{})
@@ -100,8 +94,8 @@ func TestRunSwitchModeProtectToMonitor(t *testing.T) {
 
 	output := out.String()
 	require.Contains(
-		t,
-		output,
-		"Successfully switched WorkloadPolicy \"test-policy\" in namespace \"test\" from \"protect\" mode to \"monitor\" mode.",
-	)
+t,
+output,
+"Successfully switched WorkloadPolicy \"test-policy\" in namespace \"test\" from \"protect\" mode to \"monitor\" mode.",
+)
 }

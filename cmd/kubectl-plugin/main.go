@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
@@ -33,15 +34,21 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 
+	// Adds --kubeconfig, --context, -n/--namespace, --server, --token, etc.
+	configFlags := genericclioptions.NewConfigFlags(true)
+	configFlags.AddFlags(cmd.PersistentFlags())
+
 	cmd.SetUsageTemplate(rootUsageTemplate)
 
-	cmd.AddCommand(newMarkReadyCmd())
-	cmd.AddCommand(newSwitchModeCmd())
+	cmd.AddCommand(newMarkReadyCmd(configFlags))
+	cmd.AddCommand(newSwitchModeCmd(configFlags))
+	cmd.AddCommand(newListCmd(configFlags))
 
 	return cmd
 }
 
 func main() {
+	streams := genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
 	cmd := newRootCmd()
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)

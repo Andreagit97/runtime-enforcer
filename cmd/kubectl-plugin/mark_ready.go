@@ -11,15 +11,17 @@ import (
 	"github.com/spf13/cobra"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 type markReadyOptions struct {
 	commonOptions
 
 	ProposalName string
+	Namespace    string
 }
 
-func newMarkReadyCmd() *cobra.Command {
+func newMarkReadyCmd(configFlags *genericclioptions.ConfigFlags) *cobra.Command {
 	opts := &markReadyOptions{}
 
 	cmd := &cobra.Command{
@@ -27,28 +29,59 @@ func newMarkReadyCmd() *cobra.Command {
 		Short: "Mark WorkloadPolicyProposal as ready",
 		Long:  "Mark WorkloadPolicyProposal as ready. This will trigger the creation of a WorkloadPolicy.",
 		Args:  cobra.ExactArgs(1),
-		RunE:  runMarkReadyCmd(opts),
+		RunE:  runMarkReadyCmd(configFlags, opts),
 	}
 
 	cmd.SetUsageTemplate(subcommandUsageTemplate)
 
-	cmd.Flags().StringVarP(&opts.Namespace, "namespace", "n", "", "Namespace of the WorkloadPolicyProposal")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would happen without making any changes")
 
 	return cmd
 }
 
-func runMarkReadyCmd(opts *markReadyOptions) func(cmd *cobra.Command, args []string) error {
+func exampleRunMarkReadyCmd(cmd *cobra.Command, args []string) error {
+	proposalName := args[0]
+
+	config, err := configFlags.ToRESTConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load Kubernetes configuration: %w", err)
+	}
+
+	namespace, _, err := configFlags.ToRawKubeConfigLoader().Namespace()
+	if err != nil {
+		return fmt.Errorf("failed to determine namespace: %w", err)
+	}
+
+	securityClient, err := securityclient.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("failed to create runtime-enforcer client: %w", err)
+	}
+
 	return func(cmd *cobra.Command, args []string) error {
 		opts.ProposalName = args[0]
 
-		return withRuntimeEnforcerClient(cmd, opts.Namespace, func(
+		return withRuntimeEnforcerClient(cmd, configFlags, func(
 			ctx context.Context,
 			securityClient securityclient.SecurityV1alpha1Interface,
 			namespace string,
 		) error {
 			opts.Namespace = namespace
-			return runMarkReady(ctx, securityClient, opts, cmd.OutOrStdout())
+			return runMarkReady(ctx, securityClient, opts, ioStreams(cmd).Out)
+		})
+	}
+}
+
+func runMarkReadyCmd(configFlags *genericclioptions.ConfigFlags, opts *markReadyOptions) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		opts.ProposalName = args[0]
+
+		return withRuntimeEnforcerClient(cmd, configFlags, func(
+			ctx context.Context,
+			securityClient securityclient.SecurityV1alpha1Interface,
+			namespace string,
+		) error {
+			opts.Namespace = namespace
+			return runMarkReady(ctx, securityClient, opts, ioStreams(cmd).Out)
 		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 type switchModeOptions struct {
@@ -17,9 +18,10 @@ type switchModeOptions struct {
 
 	PolicyName string
 	Mode       string
+	Namespace  string
 }
 
-func newSwitchModeCmd() *cobra.Command {
+func newSwitchModeCmd(configFlags *genericclioptions.ConfigFlags) *cobra.Command {
 	opts := &switchModeOptions{}
 
 	cmd := &cobra.Command{
@@ -27,12 +29,11 @@ func newSwitchModeCmd() *cobra.Command {
 		Short: "Switch WorkloadPolicy mode between monitor and protect",
 		Long:  "Switch WorkloadPolicy mode between monitor and protect without editing YAML manually.",
 		Args:  cobra.ExactArgs(1),
-		RunE:  runSwitchModeCmd(opts),
+		RunE:  runSwitchModeCmd(configFlags, opts),
 	}
 
 	cmd.SetUsageTemplate(subcommandUsageTemplate)
 
-	cmd.Flags().StringVarP(&opts.Namespace, "namespace", "n", "", "Namespace of the WorkloadPolicy")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Show what would happen without making any changes")
 	cmd.Flags().StringVarP(&opts.Mode, "mode", "m", "", "Target mode for the WorkloadPolicy")
 	_ = cmd.MarkFlagRequired("mode")
@@ -40,7 +41,7 @@ func newSwitchModeCmd() *cobra.Command {
 	return cmd
 }
 
-func runSwitchModeCmd(opts *switchModeOptions) func(cmd *cobra.Command, args []string) error {
+func runSwitchModeCmd(configFlags *genericclioptions.ConfigFlags, opts *switchModeOptions) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		opts.PolicyName = args[0]
 
@@ -48,13 +49,13 @@ func runSwitchModeCmd(opts *switchModeOptions) func(cmd *cobra.Command, args []s
 			return err
 		}
 
-		return withRuntimeEnforcerClient(cmd, opts.Namespace, func(
+		return withRuntimeEnforcerClient(cmd, configFlags, func(
 			ctx context.Context,
 			securityClient securityclient.SecurityV1alpha1Interface,
 			namespace string,
 		) error {
 			opts.Namespace = namespace
-			return runSwitchMode(ctx, securityClient, opts, cmd.OutOrStdout())
+			return runSwitchMode(ctx, securityClient, opts, ioStreams(cmd).Out)
 		})
 	}
 }
