@@ -70,8 +70,6 @@ helm repo update
 helm install runtime-enforcer runtime-enforcer/runtime-enforcer \
   --namespace runtime-enforcer \
   --create-namespace \
-  --set operator.image.tag=latest \
-  --set agent.image.tag=latest \
   --wait
 ```
 
