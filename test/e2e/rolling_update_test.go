@@ -3,14 +3,12 @@ package e2e_test
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/e2e-framework/klient/decoder"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
@@ -28,20 +26,11 @@ func getRollingUpdateTest() types.Feature {
 	return features.New("Rolling update").
 		Setup(SetupSharedK8sClient).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating test namespace")
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: workloadNamespace}}
-
-			err := r.Create(ctx, &namespace)
-			assert.NoError(t, err, "failed to create test namespace")
-
+			createTestNamespace(ctx, t, workloadNamespace)
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := r.Create(ctx, &v1alpha1.WorkloadPolicy{
+			createAndWaitWP(ctx, t, &v1alpha1.WorkloadPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-policy",
 					Namespace: workloadNamespace,
@@ -60,7 +49,6 @@ func getRollingUpdateTest() types.Feature {
 					},
 				},
 			})
-			require.NoError(t, err, "failed to create workload namespace")
 
 			return ctx
 		}).
@@ -68,11 +56,9 @@ func getRollingUpdateTest() types.Feature {
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 			t.Log("installing test Ubuntu deployment")
 
-			r := ctx.Value(key("client")).(*resources.Resources)
-
 			err := decoder.ApplyWithManifestDir(
 				ctx,
-				r,
+				getResources(ctx),
 				"./testdata",
 				"ubuntu-deployment.yaml",
 				[]resources.CreateOption{},
@@ -96,17 +82,8 @@ func getRollingUpdateTest() types.Feature {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
 
-				var podName string
-				var pods corev1.PodList
-				err := r.WithNamespace(workloadNamespace).List(ctx, &pods)
+				podName, err := findPodByPrefix(ctx, workloadNamespace, "ubuntu-deployment")
 				require.NoError(t, err)
-
-				for _, v := range pods.Items {
-					if strings.HasPrefix(v.Name, "ubuntu-deployment") {
-						podName = v.Name
-						break
-					}
-				}
 
 				var stdout, stderr bytes.Buffer
 
@@ -160,17 +137,8 @@ func getRollingUpdateTest() types.Feature {
 		Assess("/tmp/testdir should never be created", func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 			r := ctx.Value(key("client")).(*resources.Resources)
 
-			var podName string
-			var pods corev1.PodList
-			err := r.WithNamespace(workloadNamespace).List(ctx, &pods)
+			podName, err := findPodByPrefix(ctx, workloadNamespace, "ubuntu-deployment")
 			require.NoError(t, err)
-
-			for _, v := range pods.Items {
-				if strings.HasPrefix(v.Name, "ubuntu-deployment") {
-					podName = v.Name
-					break
-				}
-			}
 
 			var stdout, stderr bytes.Buffer
 
@@ -190,18 +158,7 @@ func getRollingUpdateTest() types.Feature {
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 			t.Log("uninstalling test resources")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := decoder.DeleteWithManifestDir(
-				ctx,
-				r,
-				"./testdata",
-				"ubuntu-deployment.yaml",
-				[]resources.DeleteOption{},
-				decoder.MutateNamespace(workloadNamespace),
-			)
-			assert.NoError(t, err, "failed to delete test data")
+			deleteUbuntuDeployment(ctx, t, workloadNamespace)
 
 			return ctx
 		}).Feature()

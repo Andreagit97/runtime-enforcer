@@ -3,18 +3,12 @@ package e2e_test
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/e2e-framework/klient/decoder"
 	"sigs.k8s.io/e2e-framework/klient/k8s/resources"
-	"sigs.k8s.io/e2e-framework/klient/wait"
-	"sigs.k8s.io/e2e-framework/klient/wait/conditions"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 	"sigs.k8s.io/e2e-framework/pkg/features"
 	"sigs.k8s.io/e2e-framework/pkg/types"
@@ -61,21 +55,12 @@ func getEnforcementOnNewPodsTest() types.Feature {
 	return features.New("enforcement on new pods").
 		Setup(SetupSharedK8sClient).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating test namespace")
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: workloadNamespace}}
-
-			err := r.Create(ctx, &namespace)
-			assert.NoError(t, err, "failed to create test namespace")
-
+			createTestNamespace(ctx, t, workloadNamespace)
 			return ctx
 		}).
 		Assess("required resources become available", IfRequiredResourcesAreCreated).
 		Assess("a namespace-scoped policy can be enforced correctly",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-				t.Log("create a security policy")
-
 				r := ctx.Value(key("client")).(*resources.Resources)
 
 				for _, tc := range getEnforcementTestCases() {
@@ -95,41 +80,14 @@ func getEnforcementOnNewPodsTest() types.Feature {
 					}
 
 					// 1. Create the resource and wait for it to be deployed.
-					err := r.Create(ctx, &policy)
-					require.NoError(t, err, "create policy")
-
-					waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
+					createAndWaitWP(ctx, t, policy.DeepCopy())
 
 					// 2. Deploy test pods
-					err = decoder.ApplyWithManifestDir(
-						ctx,
-						r,
-						"./testdata",
-						"ubuntu-deployment.yaml",
-						[]resources.CreateOption{},
-						getDeploymentPolicyMutateOption(workloadNamespace, "test-policy"),
-					)
-					require.NoError(t, err, "failed to apply test data")
-
-					err = wait.For(
-						conditions.New(r).DeploymentAvailable("ubuntu-deployment", workloadNamespace),
-						wait.WithTimeout(DefaultOperationTimeout),
-					)
-
-					require.NoError(t, err, "failed to run the target payload")
+					createAndWaitUbuntuDeployment(ctx, t, workloadNamespace, withPolicy("test-policy"))
 
 					// 3. Run command in the pod and verify the result.
-					var podName string
-					var pods corev1.PodList
-					err = r.WithNamespace(workloadNamespace).List(ctx, &pods)
+					podName, err := findPodByPrefix(ctx, workloadNamespace, "ubuntu-deployment")
 					require.NoError(t, err)
-
-					for _, v := range pods.Items {
-						if strings.HasPrefix(v.Name, "ubuntu-deployment") {
-							podName = v.Name
-							break
-						}
-					}
 
 					for _, expectedResult := range tc.expectedResults {
 						var stdout, stderr bytes.Buffer
@@ -155,24 +113,10 @@ func getEnforcementOnNewPodsTest() types.Feature {
 					}
 
 					// 4. Delete test Deployment
-					err = decoder.DeleteWithManifestDir(
-						ctx,
-						r,
-						"./testdata",
-						"ubuntu-deployment.yaml",
-						[]resources.DeleteOption{},
-						decoder.MutateNamespace(workloadNamespace),
-					)
-					require.NoError(t, err, "failed to delete test data")
+					deleteUbuntuDeployment(ctx, t, workloadNamespace)
 
 					// 5. Delete WorkloadPolicy and wait for it to be gone.
-					err = r.Delete(ctx, &policy)
-					require.NoError(t, err)
-					err = wait.For(
-						conditions.New(r).ResourceDeleted(&policy),
-						wait.WithTimeout(DefaultOperationTimeout),
-					)
-					require.NoError(t, err, "workloadpolicy should be deleted")
+					deleteAndWaitWP(ctx, t, &policy)
 				}
 
 				return ctx

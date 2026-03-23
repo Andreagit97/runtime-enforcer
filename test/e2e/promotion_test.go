@@ -3,15 +3,11 @@ package e2e_test
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/e2e-framework/klient/decoder"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/k8s/resources"
 	"sigs.k8s.io/e2e-framework/klient/wait"
@@ -27,30 +23,11 @@ func getPromotionTest() types.Feature {
 	return features.New("Promotion").
 		Setup(SetupSharedK8sClient).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating test namespace")
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: workloadNamespace}}
-
-			err := r.Create(ctx, &namespace)
-			assert.NoError(t, err, "failed to create test namespace")
-
+			createTestNamespace(ctx, t, workloadNamespace)
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("installing test Ubuntu deployment")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := decoder.ApplyWithManifestDir(
-				ctx,
-				r,
-				"./testdata",
-				"ubuntu-deployment.yaml",
-				[]resources.CreateOption{},
-				decoder.MutateNamespace(workloadNamespace),
-			)
-			assert.NoError(t, err, "failed to apply test data")
+			createAndWaitUbuntuDeployment(ctx, t, workloadNamespace)
 
 			return ctx
 		}).
@@ -167,17 +144,8 @@ func getPromotionTest() types.Feature {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
 
-				var podName string
-				var pods corev1.PodList
-				err := r.WithNamespace(workloadNamespace).List(ctx, &pods)
+				podName, err := findPodByPrefix(ctx, workloadNamespace, "ubuntu-deployment")
 				require.NoError(t, err)
-
-				for _, v := range pods.Items {
-					if strings.HasPrefix(v.Name, "ubuntu-deployment") {
-						podName = v.Name
-						break
-					}
-				}
 
 				var stdout, stderr bytes.Buffer
 
@@ -202,19 +170,7 @@ func getPromotionTest() types.Feature {
 			return ctx
 		}).
 		Teardown(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("uninstalling test resources")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := decoder.DeleteWithManifestDir(
-				ctx,
-				r,
-				"./testdata",
-				"ubuntu-deployment.yaml",
-				[]resources.DeleteOption{},
-				decoder.MutateNamespace(workloadNamespace),
-			)
-			assert.NoError(t, err, "failed to delete test data")
+			deleteUbuntuDeployment(ctx, t, workloadNamespace)
 
 			return ctx
 		}).Feature()

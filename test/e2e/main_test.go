@@ -4,17 +4,13 @@ import (
 	"bytes"
 	"context"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/e2e-framework/klient/decoder"
 	"sigs.k8s.io/e2e-framework/klient/k8s"
 	"sigs.k8s.io/e2e-framework/klient/k8s/resources"
 	"sigs.k8s.io/e2e-framework/klient/wait"
@@ -30,30 +26,11 @@ func getMainTest() types.Feature {
 	return features.New("Main").
 		Setup(SetupSharedK8sClient).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating test namespace")
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: workloadNamespace}}
-
-			err := r.Create(ctx, &namespace)
-			assert.NoError(t, err, "failed to create test namespace")
-
+			createTestNamespace(ctx, t, workloadNamespace)
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("installing test Ubuntu deployment")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := decoder.ApplyWithManifestDir(
-				ctx,
-				r,
-				"./testdata",
-				"ubuntu-deployment.yaml",
-				[]resources.CreateOption{},
-				decoder.MutateNamespace(workloadNamespace),
-			)
-			assert.NoError(t, err, "failed to apply test data")
+			createAndWaitUbuntuDeployment(ctx, t, workloadNamespace)
 
 			return ctx
 		}).
@@ -150,37 +127,11 @@ func getMainTest() types.Feature {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				t.Log("recreate a workload policy")
 
-				r := ctx.Value(key("client")).(*resources.Resources)
-
 				// Delete the ubuntu deployment
-				err := decoder.DeleteWithManifestDir(
-					ctx,
-					r,
-					"./testdata",
-					"ubuntu-deployment.yaml",
-					[]resources.DeleteOption{},
-					decoder.MutateNamespace(workloadNamespace),
-				)
-				require.NoError(t, err, "failed to delete test data")
+				deleteUbuntuDeployment(ctx, t, workloadNamespace)
 
 				// Create the ubuntu deployment again with policy label assigned.
-				err = decoder.ApplyWithManifestDir(
-					ctx,
-					r,
-					"./testdata",
-					"ubuntu-deployment.yaml",
-					[]resources.CreateOption{},
-					getDeploymentPolicyMutateOption(workloadNamespace, "test-policy"),
-				)
-				require.NoError(t, err, "failed to apply test data")
-
-				err = wait.For(deploymentUpToDate(r, &appsv1.Deployment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "ubuntu-deployment",
-						Namespace: workloadNamespace,
-					},
-				}), wait.WithTimeout(DefaultOperationTimeout))
-				require.NoError(t, err, "deployment did not become up-to-date")
+				createAndWaitUbuntuDeployment(ctx, t, workloadNamespace, withPolicy("test-policy"))
 
 				return ctx
 			}).
@@ -188,18 +139,10 @@ func getMainTest() types.Feature {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
 
-				var podName string
-				var pods corev1.PodList
-				err := r.WithNamespace(workloadNamespace).List(ctx, &pods)
+				podName, err := findPodByPrefix(ctx, workloadNamespace, "ubuntu-deployment", func(pod corev1.Pod) bool {
+					return pod.Labels[v1alpha1.PolicyLabelKey] == "test-policy"
+				})
 				require.NoError(t, err)
-
-				for _, v := range pods.Items {
-					if strings.HasPrefix(v.Name, "ubuntu-deployment") &&
-						v.Labels[v1alpha1.PolicyLabelKey] == "test-policy" {
-						podName = v.Name
-						break
-					}
-				}
 
 				var stdout, stderr bytes.Buffer
 
@@ -393,19 +336,7 @@ func getMainTest() types.Feature {
 				return ctx
 			}).
 		Teardown(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("uninstalling test resources")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := decoder.DeleteWithManifestDir(
-				ctx,
-				r,
-				"./testdata",
-				"ubuntu-deployment.yaml",
-				[]resources.DeleteOption{},
-				decoder.MutateNamespace(workloadNamespace),
-			)
-			require.NoError(t, err, "failed to delete test data")
+			deleteUbuntuDeployment(ctx, t, workloadNamespace)
 
 			return ctx
 		}).Feature()
