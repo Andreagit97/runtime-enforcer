@@ -34,10 +34,6 @@ func getPolicyUpdateTest() types.Feature {
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating policy with limited executables for main container")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
 			policy := v1alpha1.WorkloadPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      policyName,
@@ -58,12 +54,7 @@ func getPolicyUpdateTest() types.Feature {
 					},
 				},
 			}
-
-			err := r.Create(ctx, &policy)
-			require.NoError(t, err, "failed to create initial policy")
-
-			waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
-
+			createAndWaitWP(ctx, t, policy.DeepCopy())
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {

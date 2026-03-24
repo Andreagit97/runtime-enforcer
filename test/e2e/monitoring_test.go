@@ -45,22 +45,6 @@ func findPod(ctx context.Context, namespace string, prefix string) (string, erro
 	return "", errors.New("pod is not found")
 }
 
-func createWorkloadPolicy(ctx context.Context, t *testing.T, policy *v1alpha1.WorkloadPolicy) {
-	r := ctx.Value(key("client")).(*resources.Resources)
-
-	err := r.Create(ctx, policy)
-	require.NoError(t, err, "create policy")
-
-	waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy)
-}
-
-func deleteWorkloadPolicy(ctx context.Context, t *testing.T, policy *v1alpha1.WorkloadPolicy) {
-	r := ctx.Value(key("client")).(*resources.Resources)
-
-	err := r.Delete(ctx, policy)
-	require.NoError(t, err)
-}
-
 func getMonitoringTest() types.Feature {
 	return features.New("Monitoring").
 		Setup(SetupSharedK8sClient).
@@ -70,7 +54,6 @@ func getMonitoringTest() types.Feature {
 			return context.WithValue(ctx, key("namespace"), workloadNamespace)
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("setup policy")
 			namespace := ctx.Value(key("namespace")).(string)
 
 			policy := &v1alpha1.WorkloadPolicy{
@@ -94,8 +77,7 @@ func getMonitoringTest() types.Feature {
 				},
 			}
 
-			t.Log("creating workload policy and waiting for it to become Active")
-			createWorkloadPolicy(ctx, t, policy.DeepCopy())
+			createAndWaitWP(ctx, t, policy.DeepCopy())
 			return context.WithValue(ctx, key("policy"), policy.DeepCopy())
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
@@ -209,9 +191,7 @@ func getMonitoringTest() types.Feature {
 			require.NoError(t, err, "failed to delete test data")
 
 			policy := ctx.Value(key("policy")).(*v1alpha1.WorkloadPolicy)
-			t.Log("deleting test policy")
-			deleteWorkloadPolicy(ctx, t, policy)
-
+			deleteAndWaitWP(ctx, t, policy)
 			return ctx
 		}).Feature()
 }

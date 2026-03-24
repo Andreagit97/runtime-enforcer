@@ -31,8 +31,6 @@ func getEnforcementOnNewPodsTest() types.Feature {
 		Assess("required resources become available", IfRequiredResourcesAreCreated).
 		Assess("a namespace-scoped policy can be enforced correctly",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-				t.Log("create a security policy")
-
 				r := ctx.Value(key("client")).(*resources.Resources)
 
 				policy := v1alpha1.WorkloadPolicy{
@@ -57,13 +55,9 @@ func getEnforcementOnNewPodsTest() types.Feature {
 				}
 
 				// 1. Create the resource and wait for it to be deployed.
-				err := r.Create(ctx, &policy)
-				require.NoError(t, err, "create policy")
-
-				waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
-
+				createAndWaitWP(ctx, t, policy.DeepCopy())
 				// 2. Deploy test pods
-				err = decoder.ApplyWithManifestDir(
+				err := decoder.ApplyWithManifestDir(
 					ctx,
 					r,
 					"./testdata",
@@ -142,14 +136,7 @@ func getEnforcementOnNewPodsTest() types.Feature {
 				require.NoError(t, err, "failed to delete test data")
 
 				// 5. Delete WorkloadPolicy and wait for it to be gone.
-				err = r.Delete(ctx, &policy)
-				require.NoError(t, err)
-				err = wait.For(
-					conditions.New(r).ResourceDeleted(&policy),
-					wait.WithTimeout(DefaultOperationTimeout),
-				)
-				require.NoError(t, err, "workloadpolicy should be deleted")
-
+				deleteAndWaitWP(ctx, t, &policy)
 				return ctx
 			}).Feature()
 }

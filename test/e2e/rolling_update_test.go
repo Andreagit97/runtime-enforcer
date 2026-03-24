@@ -32,9 +32,7 @@ func getRollingUpdateTest() types.Feature {
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			r := ctx.Value(key("client")).(*resources.Resources)
-
-			err := r.Create(ctx, &v1alpha1.WorkloadPolicy{
+			policy := &v1alpha1.WorkloadPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-policy",
 					Namespace: workloadNamespace,
@@ -52,9 +50,8 @@ func getRollingUpdateTest() types.Feature {
 						},
 					},
 				},
-			})
-			require.NoError(t, err, "failed to create workload namespace")
-
+			}
+			createAndWaitWP(ctx, t, policy.DeepCopy())
 			return ctx
 		}).
 		Assess("required resources become available", IfRequiredResourcesAreCreated).

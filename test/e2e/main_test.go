@@ -111,11 +111,7 @@ func getMainTest() types.Feature {
 			}).
 		Assess("a proposal is promoted to a workload policy and the WP is created",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-				t.Log("create a workload policy")
-
-				r := ctx.Value(key("client")).(*resources.Resources)
 				proposal := ctx.Value(key("proposal")).(*v1alpha1.WorkloadPolicyProposal)
-
 				policy := v1alpha1.WorkloadPolicy{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-policy",
@@ -132,11 +128,7 @@ func getMainTest() types.Feature {
 						},
 					},
 				}
-				err := r.Create(ctx, &policy)
-				require.NoError(t, err, "create policy")
-
-				waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
-
+				createAndWaitWP(ctx, t, policy.DeepCopy())
 				return context.WithValue(ctx, key("policy"), &policy)
 			}).
 		Assess("update the workload to apply policy",

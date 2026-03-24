@@ -40,7 +40,6 @@ func getOtelCollectorTest() types.Feature {
 			return context.WithValue(ctx, key("namespace"), workloadNamespace)
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("setup policy")
 			namespace := ctx.Value(key("namespace")).(string)
 
 			policy := &v1alpha1.WorkloadPolicy{
@@ -64,8 +63,7 @@ func getOtelCollectorTest() types.Feature {
 				},
 			}
 
-			t.Log("creating workload policy and waiting for it to become Active")
-			createWorkloadPolicy(ctx, t, policy.DeepCopy())
+			createAndWaitWP(ctx, t, policy.DeepCopy())
 			return context.WithValue(ctx, key("policy"), policy.DeepCopy())
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
@@ -198,9 +196,7 @@ func getOtelCollectorTest() types.Feature {
 				assertMetricHasLabelKey(t, metricsBody, "runtime_enforcer_violations", "node_name")
 
 				policy := ctx.Value(key("policy")).(*v1alpha1.WorkloadPolicy)
-				t.Log("deleting test policy")
-				deleteWorkloadPolicy(ctx, t, policy)
-
+				deleteAndWaitWP(ctx, t, policy)
 				return ctx
 			}).
 		Teardown(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {

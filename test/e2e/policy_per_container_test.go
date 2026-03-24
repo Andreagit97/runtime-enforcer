@@ -32,10 +32,6 @@ func getPolicyPerContainerTest() types.Feature {
 			return ctx
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
-			t.Log("creating workload policy with per-container rules")
-
-			r := ctx.Value(key("client")).(*resources.Resources)
-
 			policy := v1alpha1.WorkloadPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      policyName,
@@ -62,12 +58,7 @@ func getPolicyPerContainerTest() types.Feature {
 					},
 				},
 			}
-
-			err := r.Create(ctx, &policy)
-			require.NoError(t, err, "failed to create workload policy")
-
-			waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
-
+			createAndWaitWP(ctx, t, policy.DeepCopy())
 			return ctx
 		}).
 		Assess("required resources become available", IfRequiredResourcesAreCreated).

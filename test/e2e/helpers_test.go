@@ -30,6 +30,30 @@ func createTestNamespace(ctx context.Context, t *testing.T, namespace string) {
 	require.NoError(t, err, "failed to create test namespace %q", namespace)
 }
 
+////////////////////
+// Workload Policy helpers
+////////////////////
+
+func createAndWaitWP(ctx context.Context, t *testing.T, policy *v1alpha1.WorkloadPolicy) {
+	t.Helper()
+	t.Logf("creating workload policy %q and waiting for it to become Active", policy.NamespacedName())
+	err := getResources(ctx).Create(ctx, policy)
+	require.NoError(t, err, "failed to create workload policy %q", policy.NamespacedName())
+	waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy)
+}
+
+func deleteAndWaitWP(ctx context.Context, t *testing.T, policy *v1alpha1.WorkloadPolicy) {
+	t.Helper()
+	t.Logf("deleting workload policy %q and waiting for it to be deleted", policy.NamespacedName())
+	err := getResources(ctx).Delete(ctx, policy)
+	require.NoError(t, err, "failed to delete workload policy %q", policy.NamespacedName())
+	err = wait.For(
+		conditions.New(getResources(ctx)).ResourceDeleted(policy),
+		wait.WithTimeout(DefaultOperationTimeout),
+	)
+	require.NoError(t, err, "workload policy %q cannot be deleted", policy.NamespacedName())
+}
+
 func waitForWorkloadPolicyStatusToBeUpdated(
 	ctx context.Context,
 	t *testing.T,
