@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -28,6 +29,7 @@ const (
 	testFolder               = "./testdata"
 	ubuntuDeploymentManifest = "ubuntu-deployment.yaml"
 	ubuntuDeploymentName     = "ubuntu-deployment"
+	operationNotPermittedMsg = "operation not permitted"
 )
 
 type podMatcher func(corev1.Pod) bool
@@ -74,6 +76,10 @@ func IfRequiredResourcesAreCreated(ctx context.Context, t *testing.T, _ *envconf
 
 func getResources(ctx context.Context) *resources.Resources {
 	return ctx.Value(key("client")).(*resources.Resources)
+}
+
+func getNamespace(ctx context.Context) string {
+	return ctx.Value(key("namespace")).(string)
 }
 
 func createTestNamespace(ctx context.Context, t *testing.T, namespace string) {
@@ -217,6 +223,53 @@ func findPodByPrefix(ctx context.Context, namespace string, prefix string, match
 	}
 
 	return "", fmt.Errorf("pod with prefix %q not found in namespace %q", prefix, namespace)
+}
+
+func execInCurrentNamespace(
+	ctx context.Context,
+	podName string,
+	containerName string,
+	command []string,
+) (string, string, error) {
+	var stdout, stderr bytes.Buffer
+	err := getResources(ctx).ExecInPod(
+		ctx,
+		getNamespace(ctx),
+		podName,
+		containerName,
+		command,
+		&stdout,
+		&stderr,
+	)
+
+	return stdout.String(), stderr.String(), err
+}
+
+func requireExecAllowedInCurrentNamespace(
+	ctx context.Context,
+	t *testing.T,
+	podName string,
+	containerName string,
+	command []string,
+) (string, string) {
+	t.Helper()
+	stdout, stderr, err := execInCurrentNamespace(ctx, podName, containerName, command)
+	require.NoError(t, err)
+	return stdout, stderr
+}
+
+func requireExecBlockedInCurrentNamespace(
+	ctx context.Context,
+	t *testing.T,
+	podName string, //nolint:unparam // we want to keep the flexibility to support different pod Names
+	containerName string,
+	command []string,
+) {
+	t.Helper()
+	stdout, stderr, err := execInCurrentNamespace(ctx, podName, containerName, command)
+	require.Error(t, err)
+	require.Empty(t, stdout)
+	require.Contains(t, stderr, operationNotPermittedMsg)
 }
 
 func verifyUbuntuLearnedProcesses(values []string) bool {

@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"bytes"
 	"context"
 	"testing"
 
@@ -31,13 +30,14 @@ func getPolicyUpdateTest() types.Feature {
 		Setup(SetupSharedK8sClient).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 			createTestNamespace(ctx, t, workloadNamespace)
-			return ctx
+			return context.WithValue(ctx, key("namespace"), workloadNamespace)
 		}).
 		Setup(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+			namespace := getNamespace(ctx)
 			policy := v1alpha1.WorkloadPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      policyName,
-					Namespace: workloadNamespace,
+					Namespace: namespace,
 				},
 				Spec: v1alpha1.WorkloadPolicySpec{
 					Mode: "protect",
@@ -61,11 +61,12 @@ func getPolicyUpdateTest() types.Feature {
 			t.Log("creating pod with two containers (main, sidecar)")
 
 			r := ctx.Value(key("client")).(*resources.Resources)
+			namespace := getNamespace(ctx)
 
 			pod := corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      podName,
-					Namespace: workloadNamespace,
+					Namespace: namespace,
 					Labels: map[string]string{
 						v1alpha1.PolicyLabelKey: policyName,
 					},
@@ -98,25 +99,21 @@ func getPolicyUpdateTest() types.Feature {
 		Assess("policy update with new executables is enforced correctly",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
+				namespace := getNamespace(ctx)
 
 				t.Log("verifying /usr/bin/cat is blocked in main before update")
-				var stdout, stderr bytes.Buffer
-				err := r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/cat", "/etc/hostname"},
-					&stdout,
-					&stderr,
 				)
-				require.Error(t, err, "/usr/bin/cat should be blocked")
-				require.Contains(t, stderr.String(), "operation not permitted")
 
 				t.Log("updating policy to add /usr/bin/cat")
 
 				var updatedPolicy v1alpha1.WorkloadPolicy
-				err = r.Get(ctx, policyName, workloadNamespace, &updatedPolicy)
+				err := r.Get(ctx, policyName, namespace, &updatedPolicy)
 				require.NoError(t, err, "failed to get policy for update")
 
 				updatedPolicy.Spec.RulesByContainer[mainContainer].Executables.Allowed = []string{
@@ -129,86 +126,59 @@ func getPolicyUpdateTest() types.Feature {
 				err = r.Update(ctx, &updatedPolicy)
 				require.NoError(t, err, "failed to update policy")
 
+				// This is almost useless because the policy won't change status during the update.
 				waitForWorkloadPolicyStatusToBeUpdated(ctx, t, updatedPolicy.DeepCopy())
 
 				t.Log("verifying /usr/bin/cat is allowed in main after update")
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				stdout, _ := requireExecAllowedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/cat", "/etc/hostname"},
-					&stdout,
-					&stderr,
 				)
-				require.NoError(t, err, "/usr/bin/cat should be allowed after policy update")
-				require.NotEmpty(t, stdout.String(), "cat should have produced output")
+				require.NotEmpty(t, stdout, "cat should have produced output")
 
 				t.Log("verifying /usr/bin/apt is still blocked in main")
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/apt", "update"},
-					&stdout,
-					&stderr,
 				)
-				require.Error(t, err, "/usr/bin/apt should still be blocked")
-				require.Contains(t, stderr.String(), "operation not permitted")
 
 				return ctx
 			}).
 		Assess("policy update can add enforcement for a new container",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
+				namespace := getNamespace(ctx)
 
 				// 1. Verify that /usr/bin/mkdir is blocked in main but allowed in sidecar
 				t.Log("verifying /usr/bin/mkdir is blocked in main and allowed in sidecar before update")
 
-				var stdout, stderr bytes.Buffer
-
-				stdout.Reset()
-				stderr.Reset()
-				err := r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/main-dir-add"},
-					&stdout,
-					&stderr,
-				)
-				require.Error(t, err, "mkdir should be blocked in main container")
-				require.Contains(
-					t,
-					stderr.String(),
-					"operation not permitted",
-					"stderr should contain 'operation not permitted' when mkdir is blocked in main container before update",
 				)
 
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				_, _ = requireExecAllowedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					sidecarContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/sidecar-dir-add"},
-					&stdout,
-					&stderr,
 				)
-				require.NoError(t, err, "mkdir should be allowed in sidecar container before it is added to the policy")
 
 				// 2. Update the policy to add the sidecar container to RulesByContainer
 				t.Log("updating policy to add sidecar container rules")
 
 				var updatedPolicy v1alpha1.WorkloadPolicy
-				err = r.Get(ctx, policyName, workloadNamespace, &updatedPolicy)
+				err := r.Get(ctx, policyName, namespace, &updatedPolicy)
 				require.NoError(t, err, "failed to get policy for add-container update")
 
 				updatedPolicy.Spec.RulesByContainer[sidecarContainer] = &v1alpha1.WorkloadPolicyRules{
@@ -229,42 +199,20 @@ func getPolicyUpdateTest() types.Feature {
 				// 3. Verify both main and sidecar are now protected (mkdir blocked in both)
 				t.Log("verifying both main and sidecar are protected after update")
 
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/main-dir-add-2"},
-					&stdout,
-					&stderr,
-				)
-				require.Error(t, err, "mkdir should still be blocked in main container after adding sidecar rules")
-				require.Contains(
-					t,
-					stderr.String(),
-					"operation not permitted",
-					"stderr should contain 'operation not permitted' when mkdir is blocked in main container after update",
 				)
 
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					sidecarContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/sidecar-dir-add-2"},
-					&stdout,
-					&stderr,
-				)
-				require.Error(t, err, "mkdir should be blocked in sidecar container after it is added to the policy")
-				require.Contains(
-					t,
-					stderr.String(),
-					"operation not permitted",
-					"stderr should contain 'operation not permitted' when mkdir is blocked in sidecar container after update",
 				)
 
 				return ctx
@@ -272,15 +220,15 @@ func getPolicyUpdateTest() types.Feature {
 		Assess("policy update can disable enforcement for a single container",
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				r := ctx.Value(key("client")).(*resources.Resources)
+				namespace := getNamespace(ctx)
 
 				t.Log("policy already has main and sidecar from previous assessment")
 				var wp v1alpha1.WorkloadPolicy
-				err := r.Get(ctx, policyName, workloadNamespace, &wp)
+				err := r.Get(ctx, policyName, namespace, &wp)
 				require.NoError(t, err, "failed to get policy")
 
 				// 1. Update the policy to remove the sidecar container from RulesByContainer
 				t.Log("updating policy to remove sidecar container rules")
-				var stdout, stderr bytes.Buffer
 				delete(wp.Spec.RulesByContainer, sidecarContainer)
 
 				err = r.Update(ctx, &wp)
@@ -290,43 +238,27 @@ func getPolicyUpdateTest() types.Feature {
 				// 2. Verify main is still protected (mkdir blocked) while sidecar is now unprotected (mkdir allowed)
 				t.Log("verifying main container remains protected and sidecar is unprotected after update")
 
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				requireExecBlockedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					mainContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/main-dir-2"},
-					&stdout,
-					&stderr,
-				)
-				require.Error(t, err, "mkdir should still be blocked in main container after update")
-				require.Contains(
-					t,
-					stderr.String(),
-					"operation not permitted",
-					"stderr should contain 'operation not permitted' when mkdir is blocked in main container after update",
 				)
 
-				stdout.Reset()
-				stderr.Reset()
-				err = r.ExecInPod(
+				_, _ = requireExecAllowedInCurrentNamespace(
 					ctx,
-					workloadNamespace,
+					t,
 					podName,
 					sidecarContainer,
 					[]string{"/usr/bin/mkdir", "/tmp/sidecar-dir-2-%d"},
-					&stdout,
-					&stderr,
 				)
-				require.NoError(t, err, "mkdir should be allowed in sidecar container after its rules are removed")
 
 				t.Log("cleaning up pod")
 				pod := corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      podName,
-						Namespace: workloadNamespace,
+						Namespace: namespace,
 					},
 				}
 				err = r.Delete(ctx, &pod)
@@ -339,9 +271,7 @@ func getPolicyUpdateTest() types.Feature {
 			}).
 		Teardown(func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 			t.Log("uninstalling test resources")
-			r := ctx.Value(key("client")).(*resources.Resources)
-			namespace := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: workloadNamespace}}
-			_ = r.Delete(ctx, &namespace)
+			_ = getResources(ctx).Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: getNamespace(ctx)}})
 			return ctx
 		}).Feature()
 }
