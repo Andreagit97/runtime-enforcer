@@ -19,41 +19,6 @@ import (
 	"sigs.k8s.io/e2e-framework/pkg/types"
 )
 
-type enforcementTestCase struct {
-	AllowedExecutables v1alpha1.WorkloadPolicyExecutables
-	expectedResults    []struct {
-		Commands []string
-		Allowed  bool
-	}
-}
-
-func getEnforcementTestCases() []enforcementTestCase {
-	return []enforcementTestCase{
-		{
-			AllowedExecutables: v1alpha1.WorkloadPolicyExecutables{
-				Allowed: []string{
-					"/usr/bin/ls",
-					"/usr/bin/bash",
-					"/usr/bin/sleep",
-				},
-			},
-			expectedResults: []struct {
-				Commands []string
-				Allowed  bool
-			}{
-				{
-					Commands: []string{"/usr/bin/ls"},
-					Allowed:  true,
-				},
-				{
-					Commands: []string{"/usr/bin/apt", "update"},
-					Allowed:  false,
-				},
-			},
-		},
-	}
-}
-
 func getEnforcementOnNewPodsTest() types.Feature {
 	workloadNamespace := envconf.RandomName("enforce-namespace", 32)
 
@@ -70,102 +35,120 @@ func getEnforcementOnNewPodsTest() types.Feature {
 
 				r := ctx.Value(key("client")).(*resources.Resources)
 
-				for _, tc := range getEnforcementTestCases() {
-					policy := v1alpha1.WorkloadPolicy{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-policy",
-							Namespace: workloadNamespace,
-						},
-						Spec: v1alpha1.WorkloadPolicySpec{
-							Mode: "protect",
-							RulesByContainer: map[string]*v1alpha1.WorkloadPolicyRules{
-								"ubuntu": {
-									Executables: tc.AllowedExecutables,
+				policy := v1alpha1.WorkloadPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-policy",
+						Namespace: workloadNamespace,
+					},
+					Spec: v1alpha1.WorkloadPolicySpec{
+						Mode: "protect",
+						RulesByContainer: map[string]*v1alpha1.WorkloadPolicyRules{
+							"ubuntu": {
+								Executables: v1alpha1.WorkloadPolicyExecutables{
+									Allowed: []string{
+										"/usr/bin/ls",
+										"/usr/bin/bash",
+										"/usr/bin/sleep",
+									},
 								},
 							},
 						},
-					}
-
-					// 1. Create the resource and wait for it to be deployed.
-					err := r.Create(ctx, &policy)
-					require.NoError(t, err, "create policy")
-
-					waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
-
-					// 2. Deploy test pods
-					err = decoder.ApplyWithManifestDir(
-						ctx,
-						r,
-						"./testdata",
-						"ubuntu-deployment.yaml",
-						[]resources.CreateOption{},
-						getDeploymentPolicyMutateOption(workloadNamespace, "test-policy"),
-					)
-					require.NoError(t, err, "failed to apply test data")
-
-					err = wait.For(
-						conditions.New(r).DeploymentAvailable("ubuntu-deployment", workloadNamespace),
-						wait.WithTimeout(DefaultOperationTimeout),
-					)
-
-					require.NoError(t, err, "failed to run the target payload")
-
-					// 3. Run command in the pod and verify the result.
-					var podName string
-					var pods corev1.PodList
-					err = r.WithNamespace(workloadNamespace).List(ctx, &pods)
-					require.NoError(t, err)
-
-					for _, v := range pods.Items {
-						if strings.HasPrefix(v.Name, "ubuntu-deployment") {
-							podName = v.Name
-							break
-						}
-					}
-
-					for _, expectedResult := range tc.expectedResults {
-						var stdout, stderr bytes.Buffer
-
-						t.Log("running:", expectedResult.Commands)
-						err = r.ExecInPod(
-							ctx,
-							workloadNamespace,
-							podName,
-							"ubuntu",
-							expectedResult.Commands,
-							&stdout,
-							&stderr,
-						)
-
-						if expectedResult.Allowed {
-							require.NoError(t, err)
-						} else {
-							require.Error(t, err)
-							require.Empty(t, stdout.String())
-							require.Contains(t, stderr.String(), "operation not permitted\n")
-						}
-					}
-
-					// 4. Delete test Deployment
-					err = decoder.DeleteWithManifestDir(
-						ctx,
-						r,
-						"./testdata",
-						"ubuntu-deployment.yaml",
-						[]resources.DeleteOption{},
-						decoder.MutateNamespace(workloadNamespace),
-					)
-					require.NoError(t, err, "failed to delete test data")
-
-					// 5. Delete WorkloadPolicy and wait for it to be gone.
-					err = r.Delete(ctx, &policy)
-					require.NoError(t, err)
-					err = wait.For(
-						conditions.New(r).ResourceDeleted(&policy),
-						wait.WithTimeout(DefaultOperationTimeout),
-					)
-					require.NoError(t, err, "workloadpolicy should be deleted")
+					},
 				}
+
+				// 1. Create the resource and wait for it to be deployed.
+				err := r.Create(ctx, &policy)
+				require.NoError(t, err, "create policy")
+
+				waitForWorkloadPolicyStatusToBeUpdated(ctx, t, policy.DeepCopy())
+
+				// 2. Deploy test pods
+				err = decoder.ApplyWithManifestDir(
+					ctx,
+					r,
+					"./testdata",
+					"ubuntu-deployment.yaml",
+					[]resources.CreateOption{},
+					getDeploymentPolicyMutateOption(workloadNamespace, "test-policy"),
+				)
+				require.NoError(t, err, "failed to apply test data")
+
+				err = wait.For(
+					conditions.New(r).DeploymentAvailable("ubuntu-deployment", workloadNamespace),
+					wait.WithTimeout(DefaultOperationTimeout),
+				)
+
+				require.NoError(t, err, "failed to run the target payload")
+
+				// 3. Run command in the pod and verify the result.
+				var podName string
+				var pods corev1.PodList
+				err = r.WithNamespace(workloadNamespace).List(ctx, &pods)
+				require.NoError(t, err)
+
+				for _, v := range pods.Items {
+					if strings.HasPrefix(v.Name, "ubuntu-deployment") {
+						podName = v.Name
+						break
+					}
+				}
+
+				expectedResults := []struct {
+					Commands []string
+					Allowed  bool
+				}{
+					{
+						Commands: []string{"/usr/bin/ls"},
+						Allowed:  true,
+					},
+					{
+						Commands: []string{"/usr/bin/apt", "update"},
+						Allowed:  false,
+					},
+				}
+
+				for _, expectedResult := range expectedResults {
+					var stdout, stderr bytes.Buffer
+
+					t.Log("running:", expectedResult.Commands)
+					err = r.ExecInPod(
+						ctx,
+						workloadNamespace,
+						podName,
+						"ubuntu",
+						expectedResult.Commands,
+						&stdout,
+						&stderr,
+					)
+
+					if expectedResult.Allowed {
+						require.NoError(t, err)
+					} else {
+						require.Error(t, err)
+						require.Empty(t, stdout.String())
+						require.Contains(t, stderr.String(), "operation not permitted\n")
+					}
+				}
+
+				// 4. Delete test Deployment
+				err = decoder.DeleteWithManifestDir(
+					ctx,
+					r,
+					"./testdata",
+					"ubuntu-deployment.yaml",
+					[]resources.DeleteOption{},
+					decoder.MutateNamespace(workloadNamespace),
+				)
+				require.NoError(t, err, "failed to delete test data")
+
+				// 5. Delete WorkloadPolicy and wait for it to be gone.
+				err = r.Delete(ctx, &policy)
+				require.NoError(t, err)
+				err = wait.For(
+					conditions.New(r).ResourceDeleted(&policy),
+					wait.WithTimeout(DefaultOperationTimeout),
+				)
+				require.NoError(t, err, "workloadpolicy should be deleted")
 
 				return ctx
 			}).Feature()
