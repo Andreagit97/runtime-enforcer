@@ -18,7 +18,8 @@ import (
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
 		v1alpha1.AcknowledgedViolationRecord{}.OpenAPIModelName(): schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_AcknowledgedViolationRecord(ref),
-		v1alpha1.NodeIssue{}.OpenAPIModelName():                   schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_NodeIssue(ref),
+		v1alpha1.PolicyNodeStatus{}.OpenAPIModelName():            schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_PolicyNodeStatus(ref),
+		v1alpha1.PolicyStatus{}.OpenAPIModelName():                schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_PolicyStatus(ref),
 		v1alpha1.ViolationRecord{}.OpenAPIModelName():             schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_ViolationRecord(ref),
 		v1alpha1.WorkloadPolicy{}.OpenAPIModelName():              schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_WorkloadPolicy(ref),
 		v1alpha1.WorkloadPolicyExecutables{}.OpenAPIModelName():   schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_WorkloadPolicyExecutables(ref),
@@ -121,23 +122,50 @@ func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_AcknowledgedViolationR
 	}
 }
 
-func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_NodeIssue(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_PolicyNodeStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "NodeIssue represents an issue with a node.",
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"PolicyStatus": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1alpha1.PolicyStatus{}.OpenAPIModelName()),
+						},
+					},
+					"nodeName": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+				},
+				Required: []string{"PolicyStatus"},
+			},
+		},
+		Dependencies: []string{
+			v1alpha1.PolicyStatus{}.OpenAPIModelName()},
+	}
+}
+
+func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_PolicyStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "PolicyStatus represents information about a policy status on a node.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"code": {
 						SchemaProps: spec.SchemaProps{
-							Description: "code is the issue code.",
+							Description: "code is the policy code.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 					"message": {
 						SchemaProps: spec.SchemaProps{
-							Description: "message is a human-readable description of the issue.",
+							Description: "message is a human-readable description.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -551,7 +579,7 @@ func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_WorkloadPolicyStatus(r
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
 										Default: map[string]interface{}{},
-										Ref:     ref(v1alpha1.NodeIssue{}.OpenAPIModelName()),
+										Ref:     ref(v1alpha1.PolicyStatus{}.OpenAPIModelName()),
 									},
 								},
 							},
@@ -617,8 +645,9 @@ func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_WorkloadPolicyStatus(r
 					"activeViolationCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "activeViolationCount is the number of currently active (non-cleared) violation records. It is always equal to len(Violations) and is updated in the same status write.",
+							Default:     0,
 							Type:        []string{"integer"},
-							Format:      "int32",
+							Format:      "int64",
 						},
 					},
 					"violations": {
@@ -653,7 +682,48 @@ func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_WorkloadPolicyStatus(r
 			},
 		},
 		Dependencies: []string{
-			v1alpha1.AcknowledgedViolationRecord{}.OpenAPIModelName(), v1alpha1.NodeIssue{}.OpenAPIModelName(), v1alpha1.ViolationRecord{}.OpenAPIModelName()},
+			v1alpha1.AcknowledgedViolationRecord{}.OpenAPIModelName(), v1alpha1.PolicyStatus{}.OpenAPIModelName(), v1alpha1.ViolationRecord{}.OpenAPIModelName()},
+	}
+}
+
+func schema_rancher_sandbox_runtime_enforcer_api_v1alpha1_violationRecordKey(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"podName": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"containerName": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"executablePath": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"action": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+				},
+				Required: []string{"podName", "containerName", "executablePath", "action"},
+			},
+		},
 	}
 }
 

@@ -1,7 +1,6 @@
 package v1alpha1_test
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
@@ -20,37 +19,38 @@ func TestWorkloadPolicyNamespacedName(t *testing.T) {
 	require.Equal(t, expected, wp.NamespacedName())
 }
 
-func TestAddNodeIssue(t *testing.T) {
-	wp := &v1alpha1.WorkloadPolicy{
-		Status: v1alpha1.WorkloadPolicyStatus{},
-	}
-	issue := v1alpha1.NodeIssue{
-		Code:    v1alpha1.NodeIssueMissingPolicy,
-		Message: "Test message",
-	}
-
-	for i := range v1alpha1.MaxNodesWithIssues + 10 {
-		wp.Status.AddNodeIssue(strconv.Itoa(i), issue)
-	}
-	// now we should have just MaxNodesWithIssues
-	require.Len(t, wp.Status.NodesWithIssues, v1alpha1.MaxNodesWithIssues)
-	// but the failed counter should reflect the actual number of failed nodes
-	require.Equal(t, v1alpha1.MaxNodesWithIssues+10, wp.Status.FailedNodes)
-	require.Contains(t, wp.Status.NodesWithIssues, v1alpha1.TruncationNodeString)
-}
-
-func TestAddTransitioningNode(t *testing.T) {
+func TestProcessNodeStatusCounters(t *testing.T) {
 	wp := &v1alpha1.WorkloadPolicy{
 		Status: v1alpha1.WorkloadPolicyStatus{},
 	}
 
-	for i := range v1alpha1.MaxTransitioningNodes + 12 {
-		wp.Status.AddTransitioningNode(strconv.Itoa(i))
-	}
+	err := wp.ProcessPolicyStatus(
+		[]v1alpha1.PolicyNodeStatus{{NodeName: "n1", PolicyStatus: v1alpha1.PolicyStatus{Code: v1alpha1.PolicyReady}}, {
+			NodeName: "n2",
+			PolicyStatus: v1alpha1.PolicyStatus{
+				Code: v1alpha1.PolicyTransitioning,
+			},
+		}, {
+			NodeName: "n3",
+			PolicyStatus: v1alpha1.PolicyStatus{
+				Code:    v1alpha1.PolicyFailed,
+				Message: "boom",
+			},
+		}},
+		nil,
+		metav1.Now(),
+	)
+	require.NoError(t, err)
 
-	// now we should have just MaxTransitioningNodes
-	require.Len(t, wp.Status.NodesTransitioning, v1alpha1.MaxTransitioningNodes)
-	// but the transitioning counter should reflect the actual number of transitioning nodes
-	require.Equal(t, v1alpha1.MaxTransitioningNodes+12, wp.Status.TransitioningNodes)
-	require.Contains(t, wp.Status.NodesTransitioning, v1alpha1.TruncationNodeString)
+	require.Equal(t, 3, wp.Status.TotalNodes)
+	require.Equal(t, 1, wp.Status.SuccessfulNodes)
+	require.Equal(t, 1, wp.Status.TransitioningNodes)
+	require.Equal(t, 1, wp.Status.FailedNodes)
+	require.Equal(t, v1alpha1.Failed, wp.Status.Phase)
+	require.Equal(t, []string{"n2"}, wp.Status.NodesTransitioning)
+	require.Equal(
+		t,
+		map[string]v1alpha1.PolicyStatus{"n3": {Code: v1alpha1.PolicyFailed, Message: "boom"}},
+		wp.Status.NodesWithIssues,
+	)
 }

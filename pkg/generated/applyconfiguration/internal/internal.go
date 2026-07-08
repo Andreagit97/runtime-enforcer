@@ -36,7 +36,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         namedType: com.github.rancher-sandbox.runtime-enforcer.api.v1alpha1.ViolationRecord
       default: {}
-- name: com.github.rancher-sandbox.runtime-enforcer.api.v1alpha1.NodeIssue
+- name: com.github.rancher-sandbox.runtime-enforcer.api.v1alpha1.PolicyStatus
   map:
     fields:
     - name: code
@@ -166,6 +166,7 @@ var schemaYAML = typed.YAMLObject(`types:
     - name: activeViolationCount
       type:
         scalar: numeric
+      default: 0
     - name: failedNodes
       type:
         scalar: numeric
@@ -179,7 +180,7 @@ var schemaYAML = typed.YAMLObject(`types:
       type:
         map:
           elementType:
-            namedType: com.github.rancher-sandbox.runtime-enforcer.api.v1alpha1.NodeIssue
+            namedType: com.github.rancher-sandbox.runtime-enforcer.api.v1alpha1.PolicyStatus
     - name: observedGeneration
       type:
         scalar: numeric

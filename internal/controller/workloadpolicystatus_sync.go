@@ -10,6 +10,7 @@ import (
 	"github.com/rancher-sandbox/runtime-enforcer/api/v1alpha1"
 	"github.com/rancher-sandbox/runtime-enforcer/internal/grpcexporter"
 	"github.com/rancher-sandbox/runtime-enforcer/internal/types/loglevel"
+	"github.com/rancher-sandbox/runtime-enforcer/internal/types/policymode"
 	pb "github.com/rancher-sandbox/runtime-enforcer/proto/agent/v1"
 
 	otellog "go.opentelemetry.io/otel/log"
@@ -17,15 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-type nodeInfo struct {
-	issue    v1alpha1.NodeIssue
-	policies map[string]*pb.PolicyStatus
-}
-
-// nodesInfoMap maps node names to their info.
-// Structure: NodeName -> Info.
-type nodesInfoMap map[string]nodeInfo
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=security.rancher.io,resources=workloadpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -104,60 +96,23 @@ func (r *WorkloadPolicyStatusSync) sync(
 	if err != nil {
 		return err
 	}
-	nodesInfo := make(nodesInfoMap, len(clients))
-
-	for nodeName, client := range clients {
-		if client == nil {
-			r.logger.Info("cannot get a agent client for the node", "node", nodeName)
-			nodesInfo[nodeName] = nodeInfo{
-				policies: nil,
-				issue: v1alpha1.NodeIssue{
-					Code:    v1alpha1.NodeIssuePodNotReady,
-					Message: "No agent client available",
-				},
-			}
-			continue
-		}
-
-		// by default success state
-		nodeIssue := v1alpha1.NodeIssue{
-			Code:    v1alpha1.NodeIssueNone,
-			Message: "",
-		}
-		var policies map[string]*pb.PolicyStatus
-		policies, err = client.ListPoliciesStatus(ctx)
-		if err != nil {
-			// in case of error we close the connection and we will open a new one at the next sync
-			r.agentClientPool.MarkStaleAgentClient(nodeName)
-			r.logger.Error(err, "failed to get policies status", "node", nodeName)
-			nodeIssue = v1alpha1.NodeIssue{
-				Code:    v1alpha1.NodeIssueMissingPolicy,
-				Message: fmt.Sprintf("cannot list node policies: %v", err),
-			}
-		} else if len(policies) == 0 {
-			// if there are no policies for this pod we have an error because in previous steps
-			// we checked that we have policies deployed in the cluster.
-			r.logger.Error(errors.New("empty policy list"), "No policies found", "node", nodeName)
-			nodeIssue = v1alpha1.NodeIssue{
-				Code:    v1alpha1.NodeIssueMissingPolicy,
-				Message: "empty policy list",
-			}
-		}
-		nodesInfo[nodeName] = nodeInfo{
-			policies: policies,
-			issue:    nodeIssue,
-		}
-	}
 
 	violationsByPolicy := r.getViolationsByPolicy(ctx, clients)
+	nodeStatusByPolicy := r.getNodeStatusByPolicy(ctx, clients, wpList.Items)
 
 	// Now we iterate over all WSPs and update their status based on the collected policies status from the agents
 	for _, wp := range wpList.Items {
-		if err = r.processWorkloadPolicy(ctx, &wp, nodesInfo, violationsByPolicy[wp.NamespacedName()]); err != nil {
+		wpNamespacedName := wp.NamespacedName()
+		if err = r.processWorkloadPolicy(
+			ctx,
+			&wp,
+			nodeStatusByPolicy[wpNamespacedName],
+			violationsByPolicy[wpNamespacedName],
+		); err != nil {
 			r.logger.Error(
 				err,
 				"failed to process workload policy",
-				"policy", wp.NamespacedName(),
+				"policy", wpNamespacedName,
 			)
 		}
 	}
@@ -201,15 +156,193 @@ func (r *WorkloadPolicyStatusSync) getViolationsByPolicy(
 	return violationsByPolicy
 }
 
+func storeStatusForEachPolicy(
+	nodeStatusByPolicy map[string][]v1alpha1.PolicyNodeStatus,
+	policies []v1alpha1.WorkloadPolicy,
+	nodeStatus v1alpha1.PolicyNodeStatus,
+) {
+	// Store the node status for the given policy
+	for _, policy := range policies {
+		policyNamespacedName := policy.NamespacedName()
+		nodeStatusByPolicy[policyNamespacedName] = append(
+			nodeStatusByPolicy[policyNamespacedName],
+			nodeStatus,
+		)
+	}
+}
+
+func (r *WorkloadPolicyStatusSync) getNodeStatusByPolicy(
+	ctx context.Context,
+	clients map[string]grpcexporter.AgentClientAPI,
+	policies []v1alpha1.WorkloadPolicy,
+) map[string][]v1alpha1.PolicyNodeStatus {
+	nodeStatusByPolicy := make(map[string][]v1alpha1.PolicyNodeStatus, len(policies))
+	for _, policy := range policies {
+		nodeStatusByPolicy[policy.NamespacedName()] = make([]v1alpha1.PolicyNodeStatus, 0, len(clients))
+	}
+
+	for nodeName, client := range clients {
+		if client == nil {
+			r.logger.Info("cannot get a agent client for the node", "node", nodeName)
+			storeStatusForEachPolicy(nodeStatusByPolicy, policies, v1alpha1.PolicyNodeStatus{
+				NodeName: nodeName,
+				PolicyStatus: v1alpha1.PolicyStatus{
+					Code:    v1alpha1.PolicyMissing,
+					Message: "No agent client available",
+				},
+			})
+			continue
+		}
+
+		nodePolicies, err := client.ListPoliciesStatus(ctx)
+		if err != nil {
+			r.agentClientPool.MarkStaleAgentClient(nodeName)
+			r.logger.Error(err, "failed to get policies status", "node", nodeName)
+			storeStatusForEachPolicy(nodeStatusByPolicy, policies, v1alpha1.PolicyNodeStatus{
+				NodeName: nodeName,
+				PolicyStatus: v1alpha1.PolicyStatus{
+					Code:    v1alpha1.PolicyMissing,
+					Message: "failed to get policies status",
+				},
+			})
+			continue
+		}
+
+		if len(nodePolicies) == 0 {
+			r.logger.Error(errors.New("empty policy list"), "No policies found", "node", nodeName)
+			storeStatusForEachPolicy(nodeStatusByPolicy, policies, v1alpha1.PolicyNodeStatus{
+				NodeName: nodeName,
+				PolicyStatus: v1alpha1.PolicyStatus{
+					Code:    v1alpha1.PolicyMissing,
+					Message: "no policies found on the node",
+				},
+			})
+			continue
+		}
+
+		for _, policy := range policies {
+			policyNamespacedName := policy.NamespacedName()
+			nodeStatus := v1alpha1.PolicyNodeStatus{NodeName: nodeName}
+
+			if nodeStatus.Code, nodeStatus.Message, err = policyNodeStatus(
+				policy.Spec.Mode,
+				nodePolicies[policyNamespacedName],
+			); err != nil {
+				r.logger.Error(
+					err,
+					"failed to get policy node status",
+					"node",
+					nodeName,
+					"policy",
+					policyNamespacedName,
+				)
+				continue
+			}
+
+			nodeStatusByPolicy[policyNamespacedName] = append(
+				nodeStatusByPolicy[policyNamespacedName],
+				nodeStatus,
+			)
+		}
+	}
+
+	return nodeStatusByPolicy
+}
+
+func policyNodeStatus(expectedMode string, policyStatus *pb.PolicyStatus) (v1alpha1.PolicyCode, string, error) {
+	if policyStatus == nil {
+		return v1alpha1.PolicyUnknown, "", errors.New("policy status is nil")
+	}
+
+	policyModeMatchesExpected := func(mode pb.PolicyMode, expectedMode string) bool {
+		switch expectedMode {
+		case policymode.ProtectString:
+			return mode == pb.PolicyMode_POLICY_MODE_PROTECT
+		case policymode.MonitorString:
+			return mode == pb.PolicyMode_POLICY_MODE_MONITOR
+		default:
+			return false
+		}
+	}
+
+	switch policyStatus.GetState() {
+	case pb.PolicyState_POLICY_STATE_READY:
+		if policyModeMatchesExpected(policyStatus.GetMode(), expectedMode) {
+			return v1alpha1.PolicyReady, "", nil
+		}
+		return v1alpha1.PolicyTransitioning, "", nil
+	case pb.PolicyState_POLICY_STATE_ERROR:
+		msg := policyStatus.GetMessage()
+		if msg == "" {
+			msg = "policy is in error state"
+		}
+		return v1alpha1.PolicyFailed, msg, nil
+	case pb.PolicyState_POLICY_STATE_UNSPECIFIED:
+		fallthrough
+	default:
+		return v1alpha1.PolicyUnknown, "", fmt.Errorf("unknown policy state %q",
+			policyStatus.GetState().String())
+	}
+}
+
+// processWorkloadPolicy updates the wp.status and wp.annotation in order to acknowledge a violation.
+// NOTE: agent side ignores annotation changes and status change via predicate.GenerationChangedPredicate{}.
+func (r *WorkloadPolicyStatusSync) processWorkloadPolicy(
+	ctx context.Context,
+	wp *v1alpha1.WorkloadPolicy,
+	nodeStatuses []v1alpha1.PolicyNodeStatus,
+	scrapedViolations []v1alpha1.ViolationRecord,
+) error {
+	patchBase := client.MergeFrom(wp.DeepCopy())
+	newPolicy := wp.DeepCopy()
+
+	if err := newPolicy.ProcessPolicyStatus(nodeStatuses, scrapedViolations, metav1.NewTime(time.Now())); err != nil {
+		return fmt.Errorf("failed to compute status for policy %s: %w", wp.NamespacedName(), err)
+	}
+
+	oldAckIDs := make(map[int64]struct{}, len(wp.Status.AcknowledgedViolations))
+	for _, ack := range wp.Status.AcknowledgedViolations {
+		oldAckIDs[ack.Violation.ID] = struct{}{}
+	}
+
+	for _, ack := range newPolicy.Status.AcknowledgedViolations {
+		if _, exists := oldAckIDs[ack.Violation.ID]; exists {
+			continue
+		}
+		r.emitAcknowledgedViolationOtelLog(ctx, ack)
+	}
+
+	r.logger.V(loglevel.VerbosityDebug).Info("updating",
+		"policy", newPolicy.NamespacedName(),
+		"annotations", newPolicy.Annotations,
+		"status", newPolicy.Status)
+
+	// At this point, we already have the expected WorkloadPolicy.
+	// Due to kubernetes design, we have to call update annotations and status separately.
+	// Here we use Patch() to prevent annotation changes made between two calls from being lost.
+
+	// We update status first and remove the annotations later
+	// If anything goes wrong we can retry in the next reconcile.
+	err := r.Status().Patch(ctx, newPolicy.DeepCopy(), patchBase)
+	if err != nil {
+		return err
+	}
+
+	err = r.Patch(ctx, newPolicy.DeepCopy(), patchBase)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *WorkloadPolicyStatusSync) emitAcknowledgedViolationOtelLog(
 	ctx context.Context,
-	violation v1alpha1.ViolationRecord,
-	reason string,
+	ack v1alpha1.AcknowledgedViolationRecord,
 ) {
 	if r.eventLogger == nil {
 		return
 	}
-
+	violation := ack.Violation
 	var rec otellog.Record
 	rec.SetEventName("policy_violation_acknowledged")
 	rec.SetSeverity(otellog.SeverityInfo)
@@ -218,7 +351,7 @@ func (r *WorkloadPolicyStatusSync) emitAcknowledgedViolationOtelLog(
 	rec.AddAttributes(
 		otellog.Int64("id", violation.ID),
 		otellog.String("timestamp", violation.Timestamp.UTC().Format(time.RFC3339)),
-		otellog.String("reason", reason),
+		otellog.String("reason", ack.Reason),
 		otellog.String("k8s.pod.name", violation.PodName),
 		otellog.String("container.name", violation.ContainerName),
 		otellog.String("proc.exepath", violation.ExecutablePath),
