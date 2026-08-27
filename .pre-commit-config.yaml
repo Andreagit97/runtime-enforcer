@@ -3,7 +3,7 @@ minimum_pre_commit_version: '0'
 repos:
   # more info on the usage: https://github.com/golangci/golangci-lint/blob/main/.pre-commit-hooks.yaml
   - repo: https://github.com/golangci/golangci-lint
-    rev: 6008b81b81c690c046ffc3fd5bce896da715d5fd # v2.11.3
+    rev: 27774aaf853a4fd21f1dd5e69439459dc1b26e68 # v2.13.2
     hooks:
       - id: golangci-lint-full
         language_version: 1.26.1
@@ -12,7 +12,7 @@ repos:
         language_version: 1.26.0
         stages: [pre-commit]
   - repo: https://github.com/cpp-linter/cpp-linter-hooks
-    rev: 525ac64394b766f8e9d2fcde75572217b9ff9286 # v1.1.13
+    rev: fb847eab8df8d27d51b015a1a4346d7035d7d5b8 # v1.6.0
     hooks:
       - id: clang-format
         args:
@@ -23,6 +23,6 @@ repos:
           - --checks=.clang-tidy
         files: ^bpf/.*\.c$
   - repo: https://github.com/yoheimuta/protolint
-    rev: 67278bf4e14fdfc8bdafef823b8e76eb403ed9ba # v0.56.4
+    rev: 6da490255111eef7091aa9220ee02de8597b02d3 # v0.57.0
     hooks:
       - id: protolint
